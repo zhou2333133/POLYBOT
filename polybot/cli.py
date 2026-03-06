@@ -29,10 +29,12 @@ _patch_click_metavar()
 app = typer.Typer(add_completion=False)
 
 
-@app.command()
-def run(
+@app.callback(invoke_without_command=True)
+def main(
     config: str = typer.Option("config.yaml", "--config", "-c"),
 ) -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "run":
+        sys.argv.pop(1)
     try:
         load_dotenv()
         cfg = load_config(config)
@@ -43,6 +45,4 @@ def run(
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "run":
-        sys.argv.pop(1)
     app()
