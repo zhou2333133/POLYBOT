@@ -12,11 +12,13 @@ class AppConfig(BaseModel):
     max_order_usdc: float = 100.0
     max_open_exposure_usdc: float = 200.0
     max_markets_per_account: int = 20
+    max_markets_to_scan: int = 200
     min_price: float = 0.05
     max_price: float = 0.95
     enforce_incentive_cap: bool = True
     only_reward_markets: bool = True
     require_rewards_daily_rate: bool = True
+    http_timeout_seconds: int = 8
 
 
 class AccountConfig(BaseModel):

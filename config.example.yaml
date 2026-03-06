@@ -5,6 +5,8 @@ app:
   max_order_usdc: 100
   max_open_exposure_usdc: 200
   max_markets_per_account: 20
+  # 每轮最多扫描的市场数量（降低请求量）
+  max_markets_to_scan: 200
   min_price: 0.05
   max_price: 0.95
   # Only consider markets where min_incentive_size <= max_order_usdc
@@ -13,6 +15,8 @@ app:
   only_reward_markets: true
   # 缺少奖励日池则跳过
   require_rewards_daily_rate: true
+  # 单次请求超时（秒）
+  http_timeout_seconds: 8
 
 accounts:
   - name: acct1

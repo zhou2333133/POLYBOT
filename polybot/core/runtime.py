@@ -192,7 +192,10 @@ def run_loop(cfg: RootConfig) -> None:
 
             for account in cfg.accounts:
                 resolved = resolve_account_secrets(account.model_dump())
-                http = HttpClient(http_proxy=account.http_proxy)
+                http = HttpClient(
+                    http_proxy=account.http_proxy,
+                    timeout=cfg.app.http_timeout_seconds,
+                )
                 fetcher = MarketFetcher(http)
                 pricing = PricingClient(http)
 
@@ -205,6 +208,13 @@ def run_loop(cfg: RootConfig) -> None:
                 markets = fetcher.fetch_markets()
                 reward_markets = [m for m in markets if is_reward_market(m)]
                 eligible = filter_markets(markets, cfg.app, cfg.strategy)
+                if cfg.app.max_markets_to_scan > 0 and len(eligible) > cfg.app.max_markets_to_scan:
+                    scored = []
+                    for market in eligible:
+                        daily_rate = get_rewards_daily_rate(market) or 0.0
+                        scored.append((daily_rate, market))
+                    scored.sort(key=lambda item: item[0], reverse=True)
+                    eligible = [item[1] for item in scored[: cfg.app.max_markets_to_scan]]
 
                 open_orders = []
                 try:
@@ -252,7 +262,16 @@ def run_loop(cfg: RootConfig) -> None:
                     token_id = select_token_id(market)
                     if not token_id:
                         continue
-                    midpoint = pricing.get_midpoint(token_id)
+                    midpoint = None
+                    best_bid = market.get("bestBid") or market.get("best_bid")
+                    best_ask = market.get("bestAsk") or market.get("best_ask")
+                    try:
+                        if best_bid is not None and best_ask is not None:
+                            midpoint = (float(best_bid) + float(best_ask)) / 2.0
+                    except (TypeError, ValueError):
+                        midpoint = None
+                    if midpoint is None:
+                        midpoint = pricing.get_midpoint(token_id)
                     if midpoint is None:
                         continue
 
