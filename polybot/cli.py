@@ -1,10 +1,27 @@
 from __future__ import annotations
 
+import click
 import typer
 from dotenv import load_dotenv
 
 from polybot.core.loader import load_config
 from polybot.core.runtime import run_loop
+
+def _patch_click_metavar() -> None:
+    param_cls = getattr(click, "Parameter", None)
+    if not param_cls:
+        return
+    original = param_cls.make_metavar
+
+    def _patched(self, ctx=None):
+        if ctx is None:
+            ctx = click.get_current_context(silent=True)
+        return original(self, ctx)
+
+    param_cls.make_metavar = _patched
+
+
+_patch_click_metavar()
 
 app = typer.Typer(add_completion=False)
 
