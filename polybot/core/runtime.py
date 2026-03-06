@@ -35,13 +35,13 @@ class AccountStats:
 
 
 def build_table(stats: List[AccountStats]) -> Table:
-    table = Table(title="POLYBOT Live", header_style="bold")
-    table.add_column("Account")
-    table.add_column("Markets Total", justify="right")
-    table.add_column("Eligible", justify="right")
-    table.add_column("Orders Planned", justify="right")
-    table.add_column("Orders Placed", justify="right")
-    table.add_column("Orders Scoring", justify="right")
+    table = Table(title="POLYBOT 实时面板", header_style="bold")
+    table.add_column("账户")
+    table.add_column("市场总数", justify="right")
+    table.add_column("可用市场", justify="right")
+    table.add_column("计划挂单", justify="right")
+    table.add_column("已下挂单", justify="right")
+    table.add_column("计分挂单", justify="right")
 
     for row in stats:
         table.add_row(

@@ -1,40 +1,41 @@
 # POLYBOT
 
-Multi-account, compliance-first liquidity-reward quoting framework for Polymarket.
+合规优先的多账户流动性奖励挂单框架（Python CLI）。
 
-This repo provides a Python CLI that:
-- Loads multiple accounts from config.
-- Filters markets by reward parameters (e.g., `min_incentive_size`).
-- Produces a live, text-based dashboard in the terminal.
-- Supports dry-run mode by default.
-- Uses private-key signing for order placement.
+本项目提供一个命令行工具：
+- 从配置加载多账户。
+- 按奖励参数过滤市场（如 `min_incentive_size`）。
+- 终端实时面板显示状态。
+- 默认 `dry_run` 模式，避免误下单。
+- 使用私钥签名下单。
 
-> This tool is designed for compliant use only. Do not use it to bypass platform rules or geographic restrictions.
+> 仅用于合规场景，禁止绕过平台规则或地理限制。
 
-## Quick start
+## 本地运行（Windows）
 
 ```bash
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 
-# Copy the example config and edit it
+# 复制配置模板并填写
 copy config.example.yaml config.yaml
 
-# Set secrets via environment variables
+# 设置私钥环境变量（每个账户一条）
 set POLYBOT_ACCT1_PRIVATE_KEY=0x...
-# or set L2 API key env vars if you use API credentials
+set POLYBOT_ACCT2_PRIVATE_KEY=0x...
 
+# 启动
 python -m polybot.cli run --config config.yaml
 ```
 
-## Config
+## 配置
 
-See `config.example.yaml` for all options. Secrets should be stored in env vars, not in the config file.
+请参考 `config.example.yaml`。密钥放在环境变量里，不要写进配置文件。
 
-## Notes
+## 备注
 
-- Markets with `min_incentive_size` higher than your `max_order_usdc` are skipped.
-- Live trading is disabled unless you set `dry_run: false`.
-- Order placement is rate-limited by `order_refresh_seconds` to avoid duplicate orders.
-- Orders may be canceled and replaced when price deviates beyond `cancel_replace_threshold_bps`.
+- `min_incentive_size` 高于 `max_order_usdc` 的市场会被跳过。
+- 只有将 `dry_run: false` 才会真实下单。
+- 通过 `order_refresh_seconds` 控制换价频率，避免重复下单。
+- 价格偏离超过 `cancel_replace_threshold_bps` 时会撤单并重挂。
