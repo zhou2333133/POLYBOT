@@ -70,6 +70,12 @@ def filter_markets(
     min_key = strategy.min_incentive_size_key
 
     for market in markets:
+        if market.get("accepting_orders") is False:
+            continue
+        if market.get("closed") is True:
+            continue
+        if market.get("archived") is True:
+            continue
         min_incentive = get_reward_field(market, min_key)
         if app.enforce_incentive_cap and min_incentive is not None:
             try:

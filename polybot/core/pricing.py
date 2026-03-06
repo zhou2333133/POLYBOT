@@ -11,10 +11,35 @@ class PricingClient:
 
     def get_midpoint(self, token_id: str) -> Optional[float]:
         url = "https://data-api.polymarket.com/midpoint"
-        data = self.http.get(url, params={"token_id": token_id})
-        mid = data.get("midpoint") or data.get("mid")
         try:
+            data = self.http.get(url, params={"token_id": token_id})
+            mid = data.get("midpoint") or data.get("mid")
             return float(mid)
+        except Exception:
+            pass
+
+        book = self.get_order_book(token_id)
+        if not book:
+            return None
+        best_bid = self._best_price(book.get("bids"))
+        best_ask = self._best_price(book.get("asks"))
+        if best_bid is None or best_ask is None:
+            return None
+        return (best_bid + best_ask) / 2.0
+
+    @staticmethod
+    def _best_price(levels: Optional[list]) -> Optional[float]:
+        if not levels:
+            return None
+        top = levels[0]
+        if isinstance(top, dict):
+            value = top.get("price")
+        elif isinstance(top, list) and len(top) >= 2:
+            value = top[0]
+        else:
+            return None
+        try:
+            return float(value)
         except (TypeError, ValueError):
             return None
 
