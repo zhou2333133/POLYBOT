@@ -162,7 +162,12 @@ def run_loop(cfg: RootConfig) -> None:
                     except (TypeError, ValueError):
                         max_spread_val = None
 
-                    tick_size = market.get("tick_size") or market.get("tickSize")
+                    tick_size = (
+                        market.get("orderPriceMinTickSize")
+                        or market.get("minimum_tick_size")
+                        or market.get("tick_size")
+                        or market.get("tickSize")
+                    )
                     if not tick_size:
                         tick_size = pricing.get_tick_size(token_id)
                     price = compute_order_price(midpoint, cfg.app, cfg.strategy)
