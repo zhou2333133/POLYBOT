@@ -19,7 +19,7 @@ from polybot.core.clob import (
 from polybot.core.config import RootConfig
 from polybot.core.http import HttpClient
 from polybot.core.loader import resolve_account_secrets
-from polybot.core.markets import MarketFetcher, filter_markets
+from polybot.core.markets import MarketFetcher, filter_markets, get_reward_field, select_token_id
 from polybot.core.pricing import PricingClient
 from polybot.core.strategy import apply_tick_size, compute_order_price, within_replace_threshold
 
@@ -149,20 +149,22 @@ def run_loop(cfg: RootConfig) -> None:
                         scoring_map = {}
 
                 for market in eligible:
-                    token_id = market.get("token_id") or market.get("tokenId")
+                    token_id = select_token_id(market)
                     if not token_id:
                         continue
-                    midpoint = pricing.get_midpoint(str(token_id))
+                    midpoint = pricing.get_midpoint(token_id)
                     if midpoint is None:
                         continue
 
-                    max_spread = market.get(cfg.strategy.max_incentive_spread_key)
+                    max_spread = get_reward_field(market, cfg.strategy.max_incentive_spread_key)
                     try:
                         max_spread_val = float(max_spread) if max_spread is not None else None
                     except (TypeError, ValueError):
                         max_spread_val = None
 
                     tick_size = market.get("tick_size") or market.get("tickSize")
+                    if not tick_size:
+                        tick_size = pricing.get_tick_size(token_id)
                     price = compute_order_price(midpoint, cfg.app, cfg.strategy)
                     if cfg.strategy.respect_max_incentive_spread and max_spread_val:
                         max_delta = max_spread_val / 2.0
@@ -175,7 +177,7 @@ def run_loop(cfg: RootConfig) -> None:
                     except (TypeError, ValueError):
                         pass
 
-                    min_incentive = market.get(cfg.strategy.min_incentive_size_key)
+                    min_incentive = get_reward_field(market, cfg.strategy.min_incentive_size_key)
                     try:
                         min_incentive_val = float(min_incentive) if min_incentive is not None else None
                     except (TypeError, ValueError):
@@ -189,7 +191,7 @@ def run_loop(cfg: RootConfig) -> None:
 
                     orders_planned += 1
 
-                    existing = orders_by_token.get(str(token_id), [])
+                    existing = orders_by_token.get(token_id, [])
                     best_match = existing[0] if existing else None
                     if best_match:
                         current_price = _extract_price(best_match)
@@ -208,7 +210,7 @@ def run_loop(cfg: RootConfig) -> None:
                             cancel_order(client, order_id)
 
                     if cfg.strategy.max_competition_size is not None:
-                        book = pricing.get_order_book(str(token_id)) or {}
+                        book = pricing.get_order_book(token_id) or {}
                         side_key = "bids" if cfg.strategy.side.lower() == "buy" else "asks"
                         top = (book.get(side_key) or [None])[0]
                         top_size = 0.0
@@ -219,7 +221,7 @@ def run_loop(cfg: RootConfig) -> None:
                         if top_size >= cfg.strategy.max_competition_size:
                             continue
 
-                    key = (account.name, str(token_id))
+                    key = (account.name, token_id)
                     last_time = last_order_at.get(key, 0.0)
                     if time.time() - last_time < cfg.app.order_refresh_seconds:
                         continue
@@ -228,7 +230,7 @@ def run_loop(cfg: RootConfig) -> None:
                         place_limit_order(
                             client,
                             cfg.strategy,
-                            str(token_id),
+                            token_id,
                             price,
                             size_shares,
                         )

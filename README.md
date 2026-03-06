@@ -26,7 +26,30 @@ set POLYBOT_ACCT1_PRIVATE_KEY=0x...
 set POLYBOT_ACCT2_PRIVATE_KEY=0x...
 
 # 启动
-python -m polybot.cli run --config config.yaml
+python -m polybot.cli -c config.yaml
+```
+
+## 本地运行（Ubuntu / Debian）
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip git
+
+git clone https://github.com/zhou2333133/POLYBOT
+cd POLYBOT
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cp config.example.yaml config.yaml
+
+# 建议用 .env（每个账户一条）
+cat > .env <<'EOF'
+POLYBOT_ACCT1_PRIVATE_KEY=0x...
+EOF
+
+python -m polybot.cli -c config.yaml
 ```
 
 ## 使用 .env（推荐，免重复配置）

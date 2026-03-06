@@ -33,3 +33,15 @@ class PricingClient:
             return self.http.get(url, params={"token_id": token_id})
         except Exception:
             return None
+
+    def get_tick_size(self, token_id: str) -> Optional[float]:
+        url = "https://clob.polymarket.com/tick-size"
+        try:
+            data = self.http.get(url, params={"token_id": token_id})
+        except Exception:
+            return None
+        tick = data.get("tick_size") or data.get("tickSize")
+        try:
+            return float(tick)
+        except (TypeError, ValueError):
+            return None
