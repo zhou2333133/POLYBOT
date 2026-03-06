@@ -1,5 +1,6 @@
 app:
   refresh_seconds: 20
+  order_refresh_seconds: 300
   dry_run: true
   max_order_usdc: 100
   max_open_exposure_usdc: 200
@@ -14,6 +15,7 @@ accounts:
     signature_type: proxy
     funder: "0x..."
     private_key_env: POLYBOT_ACCT1_PRIVATE_KEY
+    chain_id: 137
     # Optional L2 API credentials (if you use them instead of PK signing)
     api_key_env: POLYBOT_ACCT1_API_KEY
     api_secret_env: POLYBOT_ACCT1_API_SECRET
@@ -25,6 +27,7 @@ accounts:
     signature_type: proxy
     funder: "0x..."
     private_key_env: POLYBOT_ACCT2_PRIVATE_KEY
+    chain_id: 137
     api_key_env: POLYBOT_ACCT2_API_KEY
     api_secret_env: POLYBOT_ACCT2_API_SECRET
     api_passphrase_env: POLYBOT_ACCT2_API_PASSPHRASE

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class AppConfig(BaseModel):
     refresh_seconds: int = 20
+    order_refresh_seconds: int = 300
     dry_run: bool = True
     max_order_usdc: float = 100.0
     max_open_exposure_usdc: float = 200.0
@@ -21,6 +22,7 @@ class AccountConfig(BaseModel):
     signature_type: str = "proxy"
     funder: str
     private_key_env: str
+    chain_id: int = 137
     api_key_env: Optional[str] = None
     api_secret_env: Optional[str] = None
     api_passphrase_env: Optional[str] = None

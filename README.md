@@ -7,6 +7,7 @@ This repo provides a Python CLI that:
 - Filters markets by reward parameters (e.g., `min_incentive_size`).
 - Produces a live, text-based dashboard in the terminal.
 - Supports dry-run mode by default.
+- Uses private-key signing for order placement.
 
 > This tool is designed for compliant use only. Do not use it to bypass platform rules or geographic restrictions.
 
@@ -35,3 +36,4 @@ See `config.example.yaml` for all options. Secrets should be stored in env vars,
 
 - Markets with `min_incentive_size` higher than your `max_order_usdc` are skipped.
 - Live trading is disabled unless you set `dry_run: false`.
+- Order placement is rate-limited by `order_refresh_seconds` to avoid duplicate orders.
