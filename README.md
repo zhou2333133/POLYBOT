@@ -29,6 +29,17 @@ set POLYBOT_ACCT2_PRIVATE_KEY=0x...
 python -m polybot.cli run --config config.yaml
 ```
 
+## 使用 .env（推荐，免重复配置）
+
+在项目根目录创建 `.env` 文件：
+
+```bash
+POLYBOT_ACCT1_PRIVATE_KEY=0x...
+POLYBOT_ACCT2_PRIVATE_KEY=0x...
+```
+
+启动时会自动读取 `.env`。
+
 ## 配置
 
 请参考 `config.example.yaml`。密钥放在环境变量里，不要写进配置文件。
