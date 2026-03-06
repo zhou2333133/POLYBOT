@@ -7,6 +7,8 @@ app:
   max_markets_per_account: 20
   # 每轮最多扫描的市场数量（降低请求量）
   max_markets_to_scan: 200
+  # 最小结算时间（天），小于该值的市场会跳过
+  min_days_to_expiry: 7
   min_price: 0.05
   max_price: 0.95
   # Only consider markets where min_incentive_size <= max_order_usdc

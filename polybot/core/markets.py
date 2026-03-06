@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 from polybot.core.http import HttpClient
@@ -171,6 +172,23 @@ def filter_markets(
             continue
         if app.require_rewards_daily_rate and get_rewards_daily_rate(market) in (None, 0, 0.0):
             continue
+        if app.min_days_to_expiry > 0:
+            end_date = market.get("endDate") or market.get("endDateIso") or market.get("end_date")
+            if not end_date:
+                continue
+            try:
+                if isinstance(end_date, str):
+                    normalized = end_date.replace("Z", "+00:00")
+                    end_dt = datetime.fromisoformat(normalized)
+                else:
+                    continue
+            except ValueError:
+                continue
+            if end_dt.tzinfo is None:
+                end_dt = end_dt.replace(tzinfo=timezone.utc)
+            delta_days = (end_dt - datetime.now(timezone.utc)).days
+            if delta_days < app.min_days_to_expiry:
+                continue
         min_incentive = get_reward_field(market, min_key)
         if app.enforce_incentive_cap and min_incentive is not None:
             try:
