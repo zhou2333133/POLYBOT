@@ -45,12 +45,20 @@ class PricingClient:
 
     def get_spread(self, token_id: str) -> Optional[float]:
         url = "https://clob.polymarket.com/spread"
-        data = self.http.get(url, params={"token_id": token_id})
-        spread = data.get("spread")
         try:
+            data = self.http.get(url, params={"token_id": token_id})
+            spread = data.get("spread")
             return float(spread)
-        except (TypeError, ValueError):
+        except Exception:
+            pass
+        book = self.get_order_book(token_id)
+        if not book:
             return None
+        best_bid = self._best_price(book.get("bids"))
+        best_ask = self._best_price(book.get("asks"))
+        if best_bid is None or best_ask is None:
+            return None
+        return best_ask - best_bid
 
     def get_order_book(self, token_id: str) -> Optional[dict]:
         url = "https://clob.polymarket.com/book"

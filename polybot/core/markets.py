@@ -59,6 +59,25 @@ def get_reward_field(market: Dict[str, Any], key: str) -> Any:
     return rewards.get(key)
 
 
+def is_reward_market(market: Dict[str, Any]) -> bool:
+    min_size = get_reward_field(market, "min_incentive_size")
+    max_spread = get_reward_field(market, "max_incentive_spread")
+    clob_rewards = market.get("clobRewards") or market.get("clob_rewards")
+    if clob_rewards:
+        return True
+    try:
+        if min_size is not None and float(min_size) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    try:
+        if max_spread is not None and float(max_spread) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return False
+
+
 def select_token_id(market: Dict[str, Any], preferred_outcome: str | None = None) -> str:
     token_id = market.get("token_id") or market.get("tokenId")
     if token_id:
@@ -102,6 +121,8 @@ def filter_markets(
         if market.get("archived") is True:
             continue
         if market.get("active") is False:
+            continue
+        if app.only_reward_markets and not is_reward_market(market):
             continue
         min_incentive = get_reward_field(market, min_key)
         if app.enforce_incentive_cap and min_incentive is not None:
