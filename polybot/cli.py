@@ -26,10 +26,10 @@ def _patch_click_metavar() -> None:
 
 _patch_click_metavar()
 
-app = typer.Typer(add_completion=False)
+app = typer.Typer(add_completion=False, invoke_without_command=True)
 
 
-@app.callback(invoke_without_command=True)
+@app.callback()
 def main(
     config: str = typer.Option("config.yaml", "--config", "-c"),
 ) -> None:
