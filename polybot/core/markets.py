@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import List, Dict, Any
 
 from polybot.core.http import HttpClient
@@ -59,7 +60,51 @@ def get_reward_field(market: Dict[str, Any], key: str) -> Any:
     return rewards.get(key)
 
 
+def get_rewards_daily_rate(market: Dict[str, Any]) -> float | None:
+    for key in ("rewardsDailyRate", "rewards_daily_rate"):
+        if key in market:
+            try:
+                return float(market[key])
+            except (TypeError, ValueError):
+                pass
+
+    clob_rewards = market.get("clobRewards") or market.get("clob_rewards")
+    if isinstance(clob_rewards, str):
+        try:
+            clob_rewards = json.loads(clob_rewards)
+        except json.JSONDecodeError:
+            clob_rewards = [clob_rewards]
+    if isinstance(clob_rewards, list):
+        total = 0.0
+        found = False
+        for item in clob_rewards:
+            if isinstance(item, dict):
+                value = item.get("rewardsDailyRate") or item.get("rewards_daily_rate")
+                try:
+                    total += float(value)
+                    found = True
+                except (TypeError, ValueError):
+                    continue
+            elif isinstance(item, str):
+                match = re.search(r"rewardsDailyRate=([0-9.]+)", item)
+                if match:
+                    try:
+                        total += float(match.group(1))
+                        found = True
+                    except ValueError:
+                        continue
+        return total if found else None
+
+    return None
+
+
 def is_reward_market(market: Dict[str, Any]) -> bool:
+    daily_rate = get_rewards_daily_rate(market)
+    try:
+        if daily_rate is not None and float(daily_rate) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
     min_size = get_reward_field(market, "min_incentive_size")
     max_spread = get_reward_field(market, "max_incentive_spread")
     clob_rewards = market.get("clobRewards") or market.get("clob_rewards")
@@ -123,6 +168,8 @@ def filter_markets(
         if market.get("active") is False:
             continue
         if app.only_reward_markets and not is_reward_market(market):
+            continue
+        if app.require_rewards_daily_rate and get_rewards_daily_rate(market) in (None, 0, 0.0):
             continue
         min_incentive = get_reward_field(market, min_key)
         if app.enforce_incentive_cap and min_incentive is not None:

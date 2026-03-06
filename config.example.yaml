@@ -11,6 +11,8 @@ app:
   enforce_incentive_cap: true
   # 只参与有奖励的市场
   only_reward_markets: true
+  # 缺少奖励日池则跳过
+  require_rewards_daily_rate: true
 
 accounts:
   - name: acct1
@@ -47,8 +49,11 @@ strategy:
   respect_max_incentive_spread: true
   # 盘口点差需满足奖励要求
   require_spread_within_reward: true
-  # 避免挂在最优价，默认挂到第二档
-  avoid_top_of_book: true
-  avoid_top_levels: 1
+  # 自动选择合适挡位（从第二档开始，评估3档）
+  auto_level_selection: true
+  auto_level_min: 1
+  auto_level_depth: 3
+  # 成交风险权重（0~1，越大越保守）
+  fill_risk_weight: 0.5
   min_incentive_size_key: min_incentive_size
   max_incentive_spread_key: max_incentive_spread

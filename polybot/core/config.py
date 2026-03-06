@@ -16,6 +16,7 @@ class AppConfig(BaseModel):
     max_price: float = 0.95
     enforce_incentive_cap: bool = True
     only_reward_markets: bool = True
+    require_rewards_daily_rate: bool = True
 
 
 class AccountConfig(BaseModel):
@@ -40,8 +41,10 @@ class StrategyConfig(BaseModel):
     max_competition_size: Optional[float] = None
     respect_max_incentive_spread: bool = True
     require_spread_within_reward: bool = True
-    avoid_top_of_book: bool = True
-    avoid_top_levels: int = 1
+    auto_level_selection: bool = True
+    auto_level_min: int = 1
+    auto_level_depth: int = 3
+    fill_risk_weight: float = 0.5
     min_incentive_size_key: str = "min_incentive_size"
     max_incentive_spread_key: str = "max_incentive_spread"
 

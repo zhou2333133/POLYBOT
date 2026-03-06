@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 from rich.console import Console
 from rich.live import Live
@@ -23,6 +23,7 @@ from polybot.core.markets import (
     MarketFetcher,
     filter_markets,
     get_reward_field,
+    get_rewards_daily_rate,
     is_reward_market,
     select_token_id,
 )
@@ -39,6 +40,15 @@ class AccountStats:
     orders_planned: int
     orders_placed: int
     orders_scoring: int
+
+
+@dataclass
+class MarketPlan:
+    token_id: str
+    price: float
+    size_shares: float
+    score: float
+    book: Optional[dict]
 
 
 def build_table(stats: List[AccountStats]) -> Table:
@@ -105,24 +115,70 @@ def _extract_level_price(level: object) -> float | None:
         return None
 
 
-def _select_non_top_price(
-    book: dict | None,
-    side: str,
-    tick_size: float | None,
-    skip_levels: int,
-) -> float | None:
+def _extract_level_size(level: object) -> float | None:
+    if isinstance(level, dict):
+        value = level.get("size")
+    elif isinstance(level, list) and len(level) >= 2:
+        value = level[1]
+    else:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _spread_from_book(book: dict | None) -> Optional[float]:
     if not book:
         return None
+    best_bid = _extract_level_price((book.get("bids") or [None])[0])
+    best_ask = _extract_level_price((book.get("asks") or [None])[0])
+    if best_bid is None or best_ask is None:
+        return None
+    return best_ask - best_bid
+
+
+def _eligible_liquidity_usdc(
+    book: dict | None,
+    side: str,
+    midpoint: float,
+    max_delta: float,
+) -> float:
+    if not book:
+        return 0.0
+    levels = book.get("bids") if side.lower() == "buy" else book.get("asks")
+    total = 0.0
+    if not levels:
+        return total
+    for level in levels:
+        price = _extract_level_price(level)
+        size = _extract_level_size(level)
+        if price is None or size is None:
+            continue
+        if abs(price - midpoint) <= max_delta:
+            total += price * size
+    return total
+
+
+def _candidate_prices(
+    book: dict | None,
+    side: str,
+    min_level: int,
+    depth: int,
+) -> List[float]:
+    if not book:
+        return []
     levels = book.get("bids") if side.lower() == "buy" else book.get("asks")
     if not levels:
-        return None
-    index = max(0, skip_levels)
-    if len(levels) > index:
-        return _extract_level_price(levels[index])
-    best = _extract_level_price(levels[0])
-    if best is None or not tick_size:
-        return None
-    return best - tick_size if side.lower() == "buy" else best + tick_size
+        return []
+    start = max(0, min_level)
+    end = start + max(1, depth)
+    prices: List[float] = []
+    for idx in range(start, min(end, len(levels))):
+        price = _extract_level_price(levels[idx])
+        if price is not None:
+            prices.append(price)
+    return prices
 
 
 def run_loop(cfg: RootConfig) -> None:
@@ -149,7 +205,6 @@ def run_loop(cfg: RootConfig) -> None:
                 markets = fetcher.fetch_markets()
                 reward_markets = [m for m in markets if is_reward_market(m)]
                 eligible = filter_markets(markets, cfg.app, cfg.strategy)
-                eligible = eligible[: cfg.app.max_markets_per_account]
 
                 open_orders = []
                 try:
@@ -192,6 +247,7 @@ def run_loop(cfg: RootConfig) -> None:
                     except Exception:
                         scoring_map = {}
 
+                plans: List[MarketPlan] = []
                 for market in eligible:
                     token_id = select_token_id(market)
                     if not token_id:
@@ -207,6 +263,9 @@ def run_loop(cfg: RootConfig) -> None:
                         max_spread_val = None
                     if max_spread_val is not None and max_spread_val > 1.0:
                         max_spread_val = max_spread_val / 100.0
+                    if cfg.strategy.require_spread_within_reward:
+                        if not max_spread_val or max_spread_val <= 0:
+                            continue
 
                     tick_size = (
                         market.get("orderPriceMinTickSize")
@@ -221,42 +280,14 @@ def run_loop(cfg: RootConfig) -> None:
                     except (TypeError, ValueError):
                         tick_size_val = None
 
-                    book = None
-                    if cfg.strategy.avoid_top_of_book or cfg.strategy.max_competition_size is not None:
-                        book = pricing.get_order_book(token_id)
+                    book = pricing.get_order_book(token_id)
+                    if not book:
+                        continue
 
-                    if cfg.strategy.require_spread_within_reward and max_spread_val:
-                        current_spread = pricing.get_spread(token_id)
+                    if cfg.strategy.require_spread_within_reward:
+                        current_spread = _spread_from_book(book)
                         if current_spread is None or current_spread > max_spread_val:
                             continue
-
-                    price = compute_order_price(midpoint, cfg.app, cfg.strategy)
-                    if cfg.strategy.respect_max_incentive_spread and max_spread_val:
-                        max_delta = max_spread_val / 2.0
-                        if cfg.strategy.side.lower() == "buy":
-                            price = max(price, midpoint - max_delta)
-                        else:
-                            price = min(price, midpoint + max_delta)
-                    price = apply_tick_size(price, tick_size_val)
-
-                    if cfg.strategy.avoid_top_of_book:
-                        candidate = _select_non_top_price(
-                            book,
-                            cfg.strategy.side,
-                            tick_size_val,
-                            cfg.strategy.avoid_top_levels,
-                        )
-                        if candidate is None:
-                            continue
-                        if cfg.strategy.respect_max_incentive_spread and max_spread_val:
-                            max_delta = max_spread_val / 2.0
-                            if cfg.strategy.side.lower() == "buy":
-                                if candidate < (midpoint - max_delta):
-                                    continue
-                            else:
-                                if candidate > (midpoint + max_delta):
-                                    continue
-                        price = max(cfg.app.min_price, min(cfg.app.max_price, candidate))
 
                     min_incentive = get_reward_field(market, cfg.strategy.min_incentive_size_key)
                     try:
@@ -266,11 +297,82 @@ def run_loop(cfg: RootConfig) -> None:
 
                     size_usdc = min_incentive_val or cfg.app.max_order_usdc
                     size_usdc = min(size_usdc, cfg.app.max_order_usdc)
-                    if price <= 0:
+                    if size_usdc <= 0:
                         continue
-                    size_shares = size_usdc / price
 
-                    orders_planned += 1
+                    daily_rate = get_rewards_daily_rate(market)
+                    if cfg.app.require_rewards_daily_rate and (daily_rate is None or daily_rate <= 0):
+                        continue
+                    if not daily_rate:
+                        continue
+
+                    max_delta = max_spread_val / 2.0 if max_spread_val else None
+                    if max_delta is None or max_delta <= 0:
+                        continue
+                    eligible_liquidity = _eligible_liquidity_usdc(
+                        book, cfg.strategy.side, midpoint, max_delta
+                    )
+                    reward_efficiency = daily_rate / (eligible_liquidity + size_usdc)
+                    if reward_efficiency <= 0:
+                        continue
+
+                    if cfg.strategy.auto_level_selection:
+                        candidate_prices = _candidate_prices(
+                            book,
+                            cfg.strategy.side,
+                            cfg.strategy.auto_level_min,
+                            cfg.strategy.auto_level_depth,
+                        )
+                    else:
+                        candidate_prices = [compute_order_price(midpoint, cfg.app, cfg.strategy)]
+
+                    best_price = None
+                    best_score = 0.0
+                    risk_weight = max(0.0, min(cfg.strategy.fill_risk_weight, 1.0))
+                    for candidate in candidate_prices:
+                        if tick_size_val:
+                            candidate = apply_tick_size(candidate, tick_size_val)
+                        if candidate <= 0:
+                            continue
+                        if candidate < cfg.app.min_price or candidate > cfg.app.max_price:
+                            continue
+                        if abs(candidate - midpoint) > max_delta:
+                            continue
+                        if cfg.strategy.respect_max_incentive_spread:
+                            if cfg.strategy.side.lower() == "buy":
+                                if candidate < (midpoint - max_delta):
+                                    continue
+                            else:
+                                if candidate > (midpoint + max_delta):
+                                    continue
+                        distance = abs(candidate - midpoint)
+                        risk = 1.0 - min(distance / max_delta, 1.0)
+                        score = reward_efficiency * (1.0 - risk_weight * risk)
+                        if score > best_score:
+                            best_score = score
+                            best_price = candidate
+
+                    if not best_price or best_score <= 0:
+                        continue
+                    size_shares = size_usdc / best_price
+                    plans.append(
+                        MarketPlan(
+                            token_id=token_id,
+                            price=best_price,
+                            size_shares=size_shares,
+                            score=best_score,
+                            book=book,
+                        )
+                    )
+
+                plans.sort(key=lambda item: item.score, reverse=True)
+                plans = plans[: cfg.app.max_markets_per_account]
+                orders_planned = len(plans)
+
+                for plan in plans:
+                    token_id = plan.token_id
+                    price = plan.price
+                    size_shares = plan.size_shares
 
                     existing = orders_by_token.get(token_id, [])
                     best_match = existing[0] if existing else None
@@ -291,7 +393,7 @@ def run_loop(cfg: RootConfig) -> None:
                             cancel_order(client, order_id)
 
                     if cfg.strategy.max_competition_size is not None:
-                        book = book or pricing.get_order_book(token_id) or {}
+                        book = plan.book or pricing.get_order_book(token_id) or {}
                         side_key = "bids" if cfg.strategy.side.lower() == "buy" else "asks"
                         top = (book.get(side_key) or [None])[0]
                         top_size = 0.0
