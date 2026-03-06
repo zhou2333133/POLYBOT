@@ -20,7 +20,7 @@ accounts:
     api_key_env: POLYBOT_ACCT1_API_KEY
     api_secret_env: POLYBOT_ACCT1_API_SECRET
     api_passphrase_env: POLYBOT_ACCT1_API_PASSPHRASE
-    # Optional outbound proxy for legitimate network routing needs
+    # 可选代理（用于合规的网络路由需求）
     http_proxy: ""
 
   - name: acct2

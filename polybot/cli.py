@@ -12,8 +12,12 @@ app = typer.Typer(add_completion=False)
 def run(
     config: str = typer.Option("config.yaml", "--config", "-c"),
 ) -> None:
-    cfg = load_config(config)
-    run_loop(cfg)
+    try:
+        cfg = load_config(config)
+        run_loop(cfg)
+    except Exception as exc:
+        typer.echo(f"启动失败: {exc}")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
