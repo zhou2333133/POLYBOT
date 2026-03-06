@@ -1,0 +1,41 @@
+app:
+  refresh_seconds: 20
+  dry_run: true
+  max_order_usdc: 100
+  max_open_exposure_usdc: 200
+  max_markets_per_account: 20
+  min_price: 0.05
+  max_price: 0.95
+  # Only consider markets where min_incentive_size <= max_order_usdc
+  enforce_incentive_cap: true
+
+accounts:
+  - name: acct1
+    signature_type: proxy
+    funder: "0x..."
+    private_key_env: POLYBOT_ACCT1_PRIVATE_KEY
+    # Optional L2 API credentials (if you use them instead of PK signing)
+    api_key_env: POLYBOT_ACCT1_API_KEY
+    api_secret_env: POLYBOT_ACCT1_API_SECRET
+    api_passphrase_env: POLYBOT_ACCT1_API_PASSPHRASE
+    # Optional outbound proxy for legitimate network routing needs
+    http_proxy: ""
+
+  - name: acct2
+    signature_type: proxy
+    funder: "0x..."
+    private_key_env: POLYBOT_ACCT2_PRIVATE_KEY
+    api_key_env: POLYBOT_ACCT2_API_KEY
+    api_secret_env: POLYBOT_ACCT2_API_SECRET
+    api_passphrase_env: POLYBOT_ACCT2_API_PASSPHRASE
+    http_proxy: ""
+
+strategy:
+  side: buy
+  order_type: GTC
+  post_only: true
+  price_offset_bps: 10
+  # Use max_incentive_spread from market metadata if available
+  respect_max_incentive_spread: true
+  min_incentive_size_key: min_incentive_size
+  max_incentive_spread_key: max_incentive_spread
