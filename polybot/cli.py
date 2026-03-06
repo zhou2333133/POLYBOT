@@ -1,4 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
+
+import sys
 
 import click
 import typer
@@ -6,6 +8,7 @@ from dotenv import load_dotenv
 
 from polybot.core.loader import load_config
 from polybot.core.runtime import run_loop
+
 
 def _patch_click_metavar() -> None:
     param_cls = getattr(click, "Parameter", None)
@@ -40,4 +43,6 @@ def run(
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "run":
+        sys.argv.pop(1)
     app()
