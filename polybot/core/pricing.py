@@ -26,3 +26,10 @@ class PricingClient:
             return float(spread)
         except (TypeError, ValueError):
             return None
+
+    def get_order_book(self, token_id: str) -> Optional[dict]:
+        url = "https://clob.polymarket.com/book"
+        try:
+            return self.http.get(url, params={"token_id": token_id})
+        except Exception:
+            return None

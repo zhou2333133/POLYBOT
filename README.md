@@ -37,3 +37,4 @@ See `config.example.yaml` for all options. Secrets should be stored in env vars,
 - Markets with `min_incentive_size` higher than your `max_order_usdc` are skipped.
 - Live trading is disabled unless you set `dry_run: false`.
 - Order placement is rate-limited by `order_refresh_seconds` to avoid duplicate orders.
+- Orders may be canceled and replaced when price deviates beyond `cancel_replace_threshold_bps`.

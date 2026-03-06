@@ -34,6 +34,9 @@ class StrategyConfig(BaseModel):
     order_type: str = "GTC"
     post_only: bool = True
     price_offset_bps: int = 10
+    cancel_replace_threshold_bps: int = 5
+    check_scoring: bool = True
+    max_competition_size: Optional[float] = None
     respect_max_incentive_spread: bool = True
     min_incentive_size_key: str = "min_incentive_size"
     max_incentive_spread_key: str = "max_incentive_spread"

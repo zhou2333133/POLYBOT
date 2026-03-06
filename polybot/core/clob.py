@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType
+from py_clob_client.clob_types import OrderArgs, OrderType, OpenOrderParams, OrderScoringParams, OrdersScoringParams
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from polybot.core.config import AccountConfig, StrategyConfig
@@ -46,3 +46,31 @@ def place_limit_order(
     signed = client.create_order(order)
     order_type = OrderType[strategy.order_type]
     return client.post_order(signed, order_type)
+
+
+def get_open_orders(client: ClobClient) -> list[dict]:
+    return client.get_orders(OpenOrderParams())
+
+
+def cancel_order(client: ClobClient, order_id: str) -> dict:
+    return client.cancel(order_id)
+
+
+def is_order_scoring(client: ClobClient, order_id: str) -> bool:
+    result = client.is_order_scoring(OrderScoringParams(orderId=order_id))
+    if isinstance(result, dict):
+        value = result.get(order_id)
+        if isinstance(value, bool):
+            return value
+        if "scoring" in result and isinstance(result["scoring"], bool):
+            return result["scoring"]
+    return False
+
+
+def are_orders_scoring(client: ClobClient, order_ids: list[str]) -> dict:
+    if not order_ids:
+        return {}
+    result = client.are_orders_scoring(OrdersScoringParams(orderIds=order_ids))
+    if isinstance(result, dict):
+        return result
+    return {}

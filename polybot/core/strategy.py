@@ -20,3 +20,14 @@ def compute_order_price(
     price = midpoint - offset if strategy.side.lower() == "buy" else midpoint + offset
     price = max(app.min_price, min(app.max_price, price))
     return price
+
+
+def within_replace_threshold(
+    current_price: float,
+    target_price: float,
+    threshold_bps: int,
+) -> bool:
+    if target_price <= 0:
+        return False
+    diff = abs(current_price - target_price) / target_price
+    return diff <= (threshold_bps / 10000.0)

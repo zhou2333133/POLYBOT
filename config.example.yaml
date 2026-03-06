@@ -38,6 +38,9 @@ strategy:
   order_type: GTC
   post_only: true
   price_offset_bps: 10
+  cancel_replace_threshold_bps: 5
+  check_scoring: true
+  max_competition_size: null
   # Use max_incentive_spread from market metadata if available
   respect_max_incentive_spread: true
   min_incentive_size_key: min_incentive_size
