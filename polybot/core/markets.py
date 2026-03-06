@@ -11,7 +11,7 @@ class MarketFetcher:
     def __init__(self, http: HttpClient):
         self.http = http
 
-    def fetch_markets(self, max_pages: int = 5, page_size: int = 1000) -> List[Dict[str, Any]]:
+    def fetch_markets(self, max_pages: int = 8, page_size: int = 500) -> List[Dict[str, Any]]:
         # Use Gamma API for active markets metadata.
         url = "https://gamma-api.polymarket.com/markets"
         markets: List[Dict[str, Any]] = []
@@ -29,9 +29,11 @@ class MarketFetcher:
                 items = data.get("value") or data.get("data") or data.get("markets") or []
                 if isinstance(items, list):
                     markets.extend(items)
-                if len(items) < page_size:
+                if not items:
                     break
                 offset += len(items)
+                if len(items) < page_size:
+                    break
             elif isinstance(data, list):
                 markets.extend(data)
                 break
