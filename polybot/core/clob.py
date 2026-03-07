@@ -56,6 +56,19 @@ def place_limit_order(
     return client.post_order(signed, order_type)
 
 
+def place_limit_order_side(
+    client: ClobClient,
+    side: str,
+    token_id: str,
+    price: float,
+    size: float,
+) -> dict:
+    side_value = BUY if side.lower() == "buy" else SELL
+    order = OrderArgs(token_id=token_id, price=price, size=size, side=side_value)
+    signed = client.create_order(order)
+    return client.post_order(signed, OrderType.GTC)
+
+
 def get_open_orders(client: ClobClient) -> list[dict]:
     return client.get_orders(OpenOrderParams())
 

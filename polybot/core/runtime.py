@@ -16,6 +16,7 @@ from polybot.core.clob import (
     ensure_api_creds,
     get_open_orders,
     get_usdc_balance,
+    place_limit_order_side,
     place_limit_order,
 )
 from polybot.core.config import RootConfig
@@ -153,6 +154,8 @@ def build_filter_table(
         "risk_too_high": "风险过高",
         "scan_limit": "超出扫描上限",
         "max_competition": "竞争过大",
+        "market_stale": "市场过期",
+        "paused_after_fill": "成交暂停",
     }
     table = Table(title=title, header_style="bold")
     table.add_column("原因")
@@ -193,6 +196,18 @@ def _extract_token_id(order: dict) -> str:
     return ""
 
 
+def _extract_side(order: dict, fallback: str) -> str:
+    value = order.get("side") or order.get("order_side") or order.get("side_id")
+    if value is None:
+        return fallback
+    normalized = str(value).lower()
+    if normalized in ("buy", "bid", "0"):
+        return "buy"
+    if normalized in ("sell", "ask", "1"):
+        return "sell"
+    return fallback
+
+
 def _extract_level_price(level: object) -> float | None:
     if isinstance(level, dict):
         value = level.get("price")
@@ -217,6 +232,15 @@ def _extract_level_size(level: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _best_close_price(book: dict | None, close_side: str) -> Optional[float]:
+    if not book:
+        return None
+    levels = book.get("bids") if close_side.lower() == "sell" else book.get("asks")
+    if not levels:
+        return None
+    return _extract_level_price(levels[0])
 
 
 def _spread_from_book(book: dict | None) -> Optional[float]:
@@ -280,6 +304,8 @@ def run_loop(cfg: RootConfig) -> None:
     market_cache_time: Dict[str, float] = {}
     order_cache: Dict[str, set[str]] = {}
     cancel_cache: Dict[str, Dict[str, float]] = {}
+    order_meta: Dict[str, Dict[str, dict]] = {}
+    pause_until: Dict[str, float] = {}
 
     with Live(console=console, refresh_per_second=4) as live:
         while True:
@@ -307,8 +333,10 @@ def run_loop(cfg: RootConfig) -> None:
                 now = time.time()
                 cached_markets = market_cache.get(cache_key)
                 cached_at = market_cache_time.get(cache_key, 0.0)
+                used_cache = False
                 if cached_markets and (now - cached_at) < cfg.app.market_refresh_seconds:
                     markets = cached_markets
+                    used_cache = True
                 else:
                     try:
                         max_needed = cfg.app.max_markets_to_scan or None
@@ -318,11 +346,20 @@ def run_loop(cfg: RootConfig) -> None:
                             market_cache_time[cache_key] = now
                     except Exception:
                         markets = cached_markets or []
+                        if cached_markets:
+                            used_cache = True
+                stale_too_long = False
+                if used_cache and cached_markets:
+                    stale_too_long = (now - cached_at) > cfg.app.market_cache_max_age_seconds
+                    if stale_too_long:
+                        markets = []
                 reward_markets = [m for m in markets if is_reward_market(m)]
                 eligible, filter_reasons = filter_markets_with_reasons(
                     markets, cfg.app, cfg.strategy
                 )
                 filter_reasons_total.update(filter_reasons)
+                if stale_too_long:
+                    filter_reasons_total["market_stale"] += 1
                 eligible_count = len(eligible)
                 if cfg.app.max_markets_to_scan > 0 and len(eligible) > cfg.app.max_markets_to_scan:
                     scored = []
@@ -410,6 +447,21 @@ def run_loop(cfg: RootConfig) -> None:
                     orders_by_token.setdefault(token_id, []).append(order)
                     exposure_usdc += _extract_price(order) * _extract_size(order)
 
+                order_meta_account = order_meta.setdefault(account.name, {})
+                for order in open_orders or []:
+                    order_id = order.get("id")
+                    if not order_id:
+                        continue
+                    token_id = _extract_token_id(order)
+                    size = _extract_size(order)
+                    side = _extract_side(order, cfg.strategy.side)
+                    if token_id and size > 0:
+                        order_meta_account[order_id] = {
+                            "token_id": token_id,
+                            "size": size,
+                            "side": side,
+                        }
+
                 prev_open = order_cache.get(account.name, set())
                 current_open = {o.get("id") for o in open_orders if o.get("id")}
                 current_open = {o for o in current_open if o}
@@ -421,6 +473,25 @@ def run_loop(cfg: RootConfig) -> None:
                     cancel_cache[account.name] = cancels
                     disappeared = prev_open - current_open - set(cancels.keys())
                     fills_detected = len(disappeared)
+                    if disappeared:
+                        if not cfg.app.dry_run:
+                            for order_id in disappeared:
+                                meta = order_meta_account.get(order_id)
+                                if not meta:
+                                    continue
+                                close_side = "sell" if meta["side"] == "buy" else "buy"
+                                book = pricing.get_order_book(meta["token_id"])
+                                close_price = _best_close_price(book, close_side)
+                                if close_price:
+                                    place_limit_order_side(
+                                        client,
+                                        close_side,
+                                        meta["token_id"],
+                                        close_price,
+                                        meta["size"],
+                                    )
+                                order_meta_account.pop(order_id, None)
+                        pause_until[account.name] = time.time() + cfg.app.pause_after_fill_seconds
                 order_cache[account.name] = current_open
 
                 balance_usdc = get_usdc_balance(client)
@@ -619,57 +690,69 @@ def run_loop(cfg: RootConfig) -> None:
                 est_daily_reward = sum(plan.daily_reward for plan in plans)
                 all_plans.extend(plans)
 
-                for plan in plans:
-                    token_id = plan.token_id
-                    price = plan.price
-                    size_shares = plan.size_shares
+                paused = time.time() < pause_until.get(account.name, 0.0)
+                if paused:
+                    plan_reasons_total["paused_after_fill"] += len(plans)
+                else:
+                    for plan in plans:
+                        token_id = plan.token_id
+                        price = plan.price
+                        size_shares = plan.size_shares
 
-                    existing = orders_by_token.get(token_id, [])
-                    best_match = existing[0] if existing else None
-                    if best_match:
-                        current_price = _extract_price(best_match)
-                        order_id = best_match.get("id")
-                        is_scoring = scoring_map.get(order_id, True)
-                        if within_replace_threshold(
-                            current_price, price, cfg.strategy.cancel_replace_threshold_bps
-                        ) and is_scoring:
-                            orders_scoring += 1 if is_scoring else 0
-                            continue
+                        existing = orders_by_token.get(token_id, [])
+                        best_match = existing[0] if existing else None
+                        if best_match:
+                            current_price = _extract_price(best_match)
+                            order_id = best_match.get("id")
+                            is_scoring = scoring_map.get(order_id, True)
+                            if within_replace_threshold(
+                                current_price, price, cfg.strategy.cancel_replace_threshold_bps
+                            ) and is_scoring:
+                                orders_scoring += 1 if is_scoring else 0
+                                continue
 
-                        last_time = last_order_at.get((account.name, str(token_id)), 0.0)
+                            last_time = last_order_at.get((account.name, str(token_id)), 0.0)
+                            if time.time() - last_time < cfg.app.order_refresh_seconds:
+                                continue
+                            if not cfg.app.dry_run and order_id:
+                                cancel_order(client, order_id)
+                                cancel_cache.setdefault(account.name, {})[order_id] = time.time()
+                                order_meta_account.pop(order_id, None)
+
+                        if cfg.strategy.max_competition_size is not None:
+                            book = plan.book or pricing.get_order_book(token_id) or {}
+                            side_key = "bids" if cfg.strategy.side.lower() == "buy" else "asks"
+                            top = (book.get(side_key) or [None])[0]
+                            top_size = 0.0
+                            if isinstance(top, dict):
+                                top_size = float(top.get("size") or 0)
+                            elif isinstance(top, list) and len(top) >= 2:
+                                top_size = float(top[1])
+                            if top_size >= cfg.strategy.max_competition_size:
+                                continue
+
+                        key = (account.name, token_id)
+                        last_time = last_order_at.get(key, 0.0)
                         if time.time() - last_time < cfg.app.order_refresh_seconds:
                             continue
-                        if not cfg.app.dry_run and order_id:
-                            cancel_order(client, order_id)
-                            cancel_cache.setdefault(account.name, {})[order_id] = time.time()
 
-                    if cfg.strategy.max_competition_size is not None:
-                        book = plan.book or pricing.get_order_book(token_id) or {}
-                        side_key = "bids" if cfg.strategy.side.lower() == "buy" else "asks"
-                        top = (book.get(side_key) or [None])[0]
-                        top_size = 0.0
-                        if isinstance(top, dict):
-                            top_size = float(top.get("size") or 0)
-                        elif isinstance(top, list) and len(top) >= 2:
-                            top_size = float(top[1])
-                        if top_size >= cfg.strategy.max_competition_size:
-                            continue
-
-                    key = (account.name, token_id)
-                    last_time = last_order_at.get(key, 0.0)
-                    if time.time() - last_time < cfg.app.order_refresh_seconds:
-                        continue
-
-                    if not cfg.app.dry_run:
-                        place_limit_order(
-                            client,
-                            cfg.strategy,
-                            token_id,
-                            price,
-                            size_shares,
-                        )
-                    orders_placed += 1
-                    last_order_at[key] = time.time()
+                        if not cfg.app.dry_run:
+                            response = place_limit_order(
+                                client,
+                                cfg.strategy,
+                                token_id,
+                                price,
+                                size_shares,
+                            )
+                            order_id = response.get("id") if isinstance(response, dict) else None
+                            if order_id:
+                                order_meta_account[order_id] = {
+                                    "token_id": token_id,
+                                    "size": size_shares,
+                                    "side": cfg.strategy.side.lower(),
+                                }
+                        orders_placed += 1
+                        last_order_at[key] = time.time()
 
                 stats.append(
                     AccountStats(

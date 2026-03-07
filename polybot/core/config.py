@@ -19,6 +19,8 @@ class AppConfig(BaseModel):
     min_days_to_expiry: int = 7
     max_filter_rows: int = 8
     cancel_cache_seconds: int = 600
+    market_cache_max_age_seconds: int = 900
+    pause_after_fill_seconds: int = 600
     min_price: float = 0.05
     max_price: float = 0.95
     enforce_incentive_cap: bool = True

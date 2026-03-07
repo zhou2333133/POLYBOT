@@ -19,6 +19,10 @@ app:
   max_filter_rows: 8
   # 撤单记录保留秒数（用于估算成交）
   cancel_cache_seconds: 600
+  # 市场缓存最大过期秒数（超过则暂停交易）
+  market_cache_max_age_seconds: 900
+  # 成交后暂停下单秒数
+  pause_after_fill_seconds: 600
   min_price: 0.05
   max_price: 0.95
   # Only consider markets where min_incentive_size <= max_order_usdc
