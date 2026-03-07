@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.live import Live
 from rich.table import Table
 
@@ -14,6 +14,7 @@ from polybot.core.clob import (
     create_client,
     ensure_api_creds,
     get_open_orders,
+    get_usdc_balance,
     place_limit_order,
 )
 from polybot.core.config import RootConfig
@@ -40,38 +41,84 @@ class AccountStats:
     orders_planned: int
     orders_placed: int
     orders_scoring: int
+    open_orders: int
+    open_exposure_usdc: float
+    balance_usdc: Optional[float]
+    est_daily_reward: float
 
 
 @dataclass
 class MarketPlan:
+    account: str
     token_id: str
     price: float
     size_shares: float
+    size_usdc: float
+    level: int
+    daily_reward: float
+    question: str
+    end_date: str
     score: float
     book: Optional[dict]
 
 
-def build_table(stats: List[AccountStats]) -> Table:
-    table = Table(title="POLYBOT 实时面板", header_style="bold")
+def build_summary_table(stats: List[AccountStats]) -> Table:
+    table = Table(title="POLYBOT 账户概览", header_style="bold")
     table.add_column("账户")
-    table.add_column("市场总数", justify="right")
-    table.add_column("奖励市场", justify="right")
-    table.add_column("可用市场", justify="right")
+    table.add_column("余额(USDC)", justify="right")
+    table.add_column("持仓占用(USDC)", justify="right")
+    table.add_column("开放挂单", justify="right")
     table.add_column("计划挂单", justify="right")
-    table.add_column("已下挂单", justify="right")
     table.add_column("计分挂单", justify="right")
+    table.add_column("预估奖励/日", justify="right")
+    table.add_column("奖励/可用/总", justify="right")
 
     for row in stats:
+        balance = "-" if row.balance_usdc is None else f"{row.balance_usdc:.2f}"
+        reward_text = f"{row.est_daily_reward:.3f}"
+        counts = f"{row.markets_reward}/{row.markets_eligible}/{row.markets_total}"
         table.add_row(
             row.name,
-            str(row.markets_total),
-            str(row.markets_reward),
-            str(row.markets_eligible),
+            balance,
+            f"{row.open_exposure_usdc:.2f}",
+            str(row.open_orders),
             str(row.orders_planned),
-            str(row.orders_placed),
             str(row.orders_scoring),
+            reward_text,
+            counts,
         )
 
+    return table
+
+
+def _short_question(question: str, limit: int = 36) -> str:
+    if len(question) <= limit:
+        return question
+    return question[: limit - 1] + "…"
+
+
+def build_plan_table(plans: List[MarketPlan], max_rows: int) -> Table:
+    table = Table(title="POLYBOT 计划挂单（Top）", header_style="bold")
+    table.add_column("账户")
+    table.add_column("市场")
+    table.add_column("到期", justify="right")
+    table.add_column("价格", justify="right")
+    table.add_column("挡位", justify="right")
+    table.add_column("金额(USDC)", justify="right")
+    table.add_column("预估奖励/日", justify="right")
+    table.add_column("得分", justify="right")
+
+    for plan in plans[: max_rows]:
+        table.add_row(
+            plan.account,
+            _short_question(plan.question),
+            plan.end_date,
+            f"{plan.price:.4f}",
+            f"L{plan.level}",
+            f"{plan.size_usdc:.2f}",
+            f"{plan.daily_reward:.3f}",
+            f"{plan.score:.4f}",
+        )
     return table
 
 
@@ -165,7 +212,7 @@ def _candidate_prices(
     side: str,
     min_level: int,
     depth: int,
-) -> List[float]:
+) -> List[tuple[float, int]]:
     if not book:
         return []
     levels = book.get("bids") if side.lower() == "buy" else book.get("asks")
@@ -173,11 +220,11 @@ def _candidate_prices(
         return []
     start = max(0, min_level)
     end = start + max(1, depth)
-    prices: List[float] = []
+    prices: List[tuple[float, int]] = []
     for idx in range(start, min(end, len(levels))):
         price = _extract_level_price(levels[idx])
         if price is not None:
-            prices.append(price)
+            prices.append((price, idx + 1))
     return prices
 
 
@@ -189,6 +236,7 @@ def run_loop(cfg: RootConfig) -> None:
     with Live(console=console, refresh_per_second=4) as live:
         while True:
             stats: List[AccountStats] = []
+            all_plans: List[MarketPlan] = []
 
             for account in cfg.accounts:
                 resolved = resolve_account_secrets(account.model_dump())
@@ -300,6 +348,8 @@ def run_loop(cfg: RootConfig) -> None:
                 orders_planned = 0
                 orders_placed = 0
                 orders_scoring = 0
+                est_daily_reward = 0.0
+                balance_usdc = get_usdc_balance(client)
 
                 scoring_map: Dict[str, bool] = {}
                 if cfg.strategy.check_scoring:
@@ -395,50 +445,63 @@ def run_loop(cfg: RootConfig) -> None:
                             cfg.strategy.auto_level_depth,
                         )
                     else:
-                        candidate_prices = [compute_order_price(midpoint, cfg.app, cfg.strategy)]
+                        fallback = compute_order_price(midpoint, cfg.app, cfg.strategy)
+                        candidate_prices = [(fallback, 0)]
 
                     best_price = None
                     best_score = 0.0
+                    best_level = 0
+                    best_daily_reward = 0.0
                     risk_weight = max(0.0, min(cfg.strategy.fill_risk_weight, 1.0))
-                    for candidate in candidate_prices:
-                        if tick_size_val:
-                            candidate = apply_tick_size(candidate, tick_size_val)
-                        if candidate <= 0:
+                    for candidate, level in candidate_prices:
+                        price = apply_tick_size(candidate, tick_size_val) if tick_size_val else candidate
+                        if price <= 0:
                             continue
-                        if candidate < cfg.app.min_price or candidate > cfg.app.max_price:
+                        if price < cfg.app.min_price or price > cfg.app.max_price:
                             continue
-                        if abs(candidate - midpoint) > max_delta:
+                        if abs(price - midpoint) > max_delta:
                             continue
                         if cfg.strategy.respect_max_incentive_spread:
                             if cfg.strategy.side.lower() == "buy":
-                                if candidate < (midpoint - max_delta):
+                                if price < (midpoint - max_delta):
                                     continue
                             else:
-                                if candidate > (midpoint + max_delta):
+                                if price > (midpoint + max_delta):
                                     continue
-                        distance = abs(candidate - midpoint)
+                        distance = abs(price - midpoint)
                         risk = 1.0 - min(distance / max_delta, 1.0)
                         score = reward_efficiency * (1.0 - risk_weight * risk)
                         if score > best_score:
                             best_score = score
-                            best_price = candidate
+                            best_price = price
+                            best_level = level
+                            best_daily_reward = reward_efficiency * size_usdc
 
                     if not best_price or best_score <= 0:
                         continue
                     size_shares = size_usdc / best_price
                     plans.append(
                         MarketPlan(
+                            account=account.name,
                             token_id=token_id,
                             price=best_price,
                             size_shares=size_shares,
+                            size_usdc=size_usdc,
+                            level=best_level,
+                            daily_reward=best_daily_reward,
+                            question=str(market.get("question") or market.get("title") or "未知市场"),
+                            end_date=str(
+                                (market.get("endDateIso") or market.get("endDate") or "")[:10]
+                            ),
                             score=best_score,
                             book=book,
                         )
                     )
-
                 plans.sort(key=lambda item: item.score, reverse=True)
                 plans = plans[: cfg.app.max_markets_per_account]
                 orders_planned = len(plans)
+                est_daily_reward = sum(plan.daily_reward for plan in plans)
+                all_plans.extend(plans)
 
                 for plan in plans:
                     token_id = plan.token_id
@@ -500,8 +563,15 @@ def run_loop(cfg: RootConfig) -> None:
                         orders_planned=orders_planned,
                         orders_placed=orders_placed,
                         orders_scoring=orders_scoring,
+                        open_orders=len(open_orders),
+                        open_exposure_usdc=exposure_usdc,
+                        balance_usdc=balance_usdc,
+                        est_daily_reward=est_daily_reward,
                     )
                 )
 
-            live.update(build_table(stats))
+            all_plans.sort(key=lambda item: item.score, reverse=True)
+            summary = build_summary_table(stats)
+            plan_table = build_plan_table(all_plans, cfg.app.max_plan_rows)
+            live.update(Group(summary, plan_table))
             time.sleep(cfg.app.refresh_seconds)

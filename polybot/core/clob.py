@@ -3,10 +3,18 @@ from __future__ import annotations
 from typing import Optional
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType, OpenOrderParams, OrderScoringParams, OrdersScoringParams
+from py_clob_client.clob_types import (
+    OrderArgs,
+    OrderType,
+    OpenOrderParams,
+    OrderScoringParams,
+    OrdersScoringParams,
+)
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from polybot.core.config import AccountConfig, StrategyConfig
+
+USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 
 
 def _signature_type_value(signature_type: str) -> int:
@@ -74,3 +82,44 @@ def are_orders_scoring(client: ClobClient, order_ids: list[str]) -> dict:
     if isinstance(result, dict):
         return result
     return {}
+
+
+def get_usdc_balance(client: ClobClient) -> Optional[float]:
+    for method_name in ("get_balances", "get_balance"):
+        method = getattr(client, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            payload = method()
+        except Exception:
+            continue
+        value = _extract_usdc_balance(payload)
+        if value is not None:
+            return value
+    return None
+
+
+def _extract_usdc_balance(payload: object) -> Optional[float]:
+    if isinstance(payload, dict):
+        for key in ("available", "balance", "amount", "free"):
+            if key in payload:
+                try:
+                    return float(payload[key])
+                except (TypeError, ValueError):
+                    pass
+        if "balances" in payload:
+            return _extract_usdc_balance(payload["balances"])
+    if isinstance(payload, list):
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol") or item.get("currency") or item.get("asset") or "").upper()
+            address = str(item.get("assetAddress") or item.get("asset_address") or "")
+            if symbol == "USDC" or address.lower() == USDC_ADDRESS.lower():
+                for key in ("available", "balance", "amount", "free"):
+                    if key in item:
+                        try:
+                            return float(item[key])
+                        except (TypeError, ValueError):
+                            pass
+    return None
