@@ -232,6 +232,7 @@ def run_loop(cfg: RootConfig) -> None:
     console = Console()
     last_order_at: Dict[Tuple[str, str], float] = {}
     client_cache: Dict[str, object] = {}
+    market_cache: Dict[str, List[dict]] = {}
 
     with Live(console=console, refresh_per_second=4) as live:
         while True:
@@ -253,7 +254,14 @@ def run_loop(cfg: RootConfig) -> None:
                     ensure_api_creds(client)
                     client_cache[account.name] = client
 
-                markets = fetcher.fetch_markets()
+                cache_key = account.http_proxy or "default"
+                try:
+                    max_needed = cfg.app.max_markets_to_scan or None
+                    markets = fetcher.fetch_markets(max_needed=max_needed)
+                    if markets:
+                        market_cache[cache_key] = markets
+                except Exception:
+                    markets = market_cache.get(cache_key, [])
                 reward_markets = [m for m in markets if is_reward_market(m)]
                 eligible = filter_markets(markets, cfg.app, cfg.strategy)
                 if cfg.app.max_markets_to_scan > 0 and len(eligible) > cfg.app.max_markets_to_scan:
