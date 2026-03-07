@@ -13,6 +13,7 @@ class AppConfig(BaseModel):
     max_open_exposure_usdc: float = 200.0
     max_markets_per_account: int = 20
     max_markets_to_scan: int = 200
+    max_orderbook_requests: int = 50
     min_days_to_expiry: int = 7
     min_price: float = 0.05
     max_price: float = 0.95

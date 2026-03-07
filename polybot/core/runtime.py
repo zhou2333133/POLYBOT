@@ -216,6 +216,58 @@ def run_loop(cfg: RootConfig) -> None:
                     scored.sort(key=lambda item: item[0], reverse=True)
                     eligible = [item[1] for item in scored[: cfg.app.max_markets_to_scan]]
 
+                prefiltered: List[tuple[float, dict]] = []
+                for market in eligible:
+                    token_id = select_token_id(market)
+                    if not token_id:
+                        continue
+                    max_spread = get_reward_field(market, cfg.strategy.max_incentive_spread_key)
+                    try:
+                        max_spread_val = float(max_spread) if max_spread is not None else None
+                    except (TypeError, ValueError):
+                        max_spread_val = None
+                    if max_spread_val is not None and max_spread_val > 1.0:
+                        max_spread_val = max_spread_val / 100.0
+                    if cfg.strategy.require_spread_within_reward:
+                        if not max_spread_val or max_spread_val <= 0:
+                            continue
+                    spread_hint = market.get("spread")
+                    if spread_hint is not None and max_spread_val:
+                        try:
+                            if float(spread_hint) > max_spread_val:
+                                continue
+                        except (TypeError, ValueError):
+                            pass
+                    min_incentive = get_reward_field(market, cfg.strategy.min_incentive_size_key)
+                    try:
+                        min_incentive_val = float(min_incentive) if min_incentive is not None else None
+                    except (TypeError, ValueError):
+                        min_incentive_val = None
+                    size_usdc = min_incentive_val or cfg.app.max_order_usdc
+                    size_usdc = min(size_usdc, cfg.app.max_order_usdc)
+                    if size_usdc <= 0:
+                        continue
+                    daily_rate = get_rewards_daily_rate(market)
+                    if cfg.app.require_rewards_daily_rate and (daily_rate is None or daily_rate <= 0):
+                        continue
+                    if not daily_rate:
+                        continue
+                    liquidity_hint = market.get("liquidityClob") or market.get("liquidityClobNum")
+                    if liquidity_hint is None:
+                        liquidity_hint = market.get("liquidity") or market.get("liquidityNum")
+                    try:
+                        liquidity_val = float(liquidity_hint) if liquidity_hint is not None else 0.0
+                    except (TypeError, ValueError):
+                        liquidity_val = 0.0
+                    approx_score = daily_rate / (liquidity_val + size_usdc)
+                    prefiltered.append((approx_score, market))
+
+                prefiltered.sort(key=lambda item: item[0], reverse=True)
+                if cfg.app.max_orderbook_requests > 0:
+                    eligible = [item[1] for item in prefiltered[: cfg.app.max_orderbook_requests]]
+                else:
+                    eligible = [item[1] for item in prefiltered]
+
                 open_orders = []
                 try:
                     open_orders = get_open_orders(client)

@@ -7,6 +7,8 @@ app:
   max_markets_per_account: 20
   # 每轮最多扫描的市场数量（降低请求量）
   max_markets_to_scan: 200
+  # 每轮最多请求盘口的市场数量
+  max_orderbook_requests: 50
   # 最小结算时间（天），小于该值的市场会跳过
   min_days_to_expiry: 7
   min_price: 0.05
