@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 from polybot.core.http import HttpClient
 from polybot.core.config import AppConfig, StrategyConfig
@@ -161,49 +162,72 @@ def filter_markets(
     app: AppConfig,
     strategy: StrategyConfig,
 ) -> List[Dict[str, Any]]:
+    filtered, _ = filter_markets_with_reasons(markets, app, strategy)
+    return filtered
+
+
+def filter_markets_with_reasons(
+    markets: List[Dict[str, Any]],
+    app: AppConfig,
+    strategy: StrategyConfig,
+) -> Tuple[List[Dict[str, Any]], Counter]:
     filtered: List[Dict[str, Any]] = []
     min_key = strategy.min_incentive_size_key
+    reasons: Counter = Counter()
 
     for market in markets:
         if market.get("acceptingOrders") is False:
+            reasons["not_accepting"] += 1
             continue
         if market.get("accepting_orders") is False:
+            reasons["not_accepting"] += 1
             continue
         if market.get("closed") is True:
+            reasons["closed"] += 1
             continue
         if market.get("archived") is True:
+            reasons["archived"] += 1
             continue
         if market.get("active") is False:
+            reasons["inactive"] += 1
             continue
         if app.only_reward_markets and not is_reward_market(market):
+            reasons["not_reward"] += 1
             continue
         if app.require_rewards_daily_rate and get_rewards_daily_rate(market) in (None, 0, 0.0):
+            reasons["missing_daily_rate"] += 1
             continue
         if app.min_days_to_expiry > 0:
             end_date = market.get("endDate") or market.get("endDateIso") or market.get("end_date")
             if not end_date:
+                reasons["missing_end_date"] += 1
                 continue
             try:
                 if isinstance(end_date, str):
                     normalized = end_date.replace("Z", "+00:00")
                     end_dt = datetime.fromisoformat(normalized)
                 else:
+                    reasons["invalid_end_date"] += 1
                     continue
             except ValueError:
+                reasons["invalid_end_date"] += 1
                 continue
             if end_dt.tzinfo is None:
                 end_dt = end_dt.replace(tzinfo=timezone.utc)
             delta_days = (end_dt - datetime.now(timezone.utc)).days
             if delta_days < app.min_days_to_expiry:
+                reasons["expiry_too_soon"] += 1
                 continue
         min_incentive = get_reward_field(market, min_key)
         if app.enforce_incentive_cap and min_incentive is not None:
             try:
                 if float(min_incentive) > app.max_order_usdc:
+                    reasons["min_incentive_over_cap"] += 1
                     continue
             except (TypeError, ValueError):
+                reasons["min_incentive_parse_error"] += 1
                 continue
 
         filtered.append(market)
 
-    return filtered
+    return filtered, reasons

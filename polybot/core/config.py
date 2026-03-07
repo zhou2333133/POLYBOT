@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 class AppConfig(BaseModel):
     refresh_seconds: int = 20
     order_refresh_seconds: int = 300
+    market_refresh_seconds: int = 180
     dry_run: bool = True
     max_order_usdc: float = 100.0
     max_open_exposure_usdc: float = 200.0
@@ -16,6 +17,8 @@ class AppConfig(BaseModel):
     max_orderbook_requests: int = 50
     max_plan_rows: int = 10
     min_days_to_expiry: int = 7
+    max_filter_rows: int = 8
+    cancel_cache_seconds: int = 600
     min_price: float = 0.05
     max_price: float = 0.95
     enforce_incentive_cap: bool = True
@@ -50,6 +53,7 @@ class StrategyConfig(BaseModel):
     auto_level_min: int = 1
     auto_level_depth: int = 3
     fill_risk_weight: float = 0.5
+    max_midpoint_deviation_bps: int = 1000
     min_incentive_size_key: str = "min_incentive_size"
     max_incentive_spread_key: str = "max_incentive_spread"
 

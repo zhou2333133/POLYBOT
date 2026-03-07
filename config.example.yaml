@@ -1,6 +1,8 @@
 app:
   refresh_seconds: 20
   order_refresh_seconds: 300
+  # 市场列表刷新间隔（秒）
+  market_refresh_seconds: 180
   dry_run: true
   max_order_usdc: 100
   max_open_exposure_usdc: 200
@@ -13,6 +15,10 @@ app:
   max_plan_rows: 10
   # 最小结算时间（天），小于该值的市场会跳过
   min_days_to_expiry: 7
+  # 过滤统计最多展示的行数
+  max_filter_rows: 8
+  # 撤单记录保留秒数（用于估算成交）
+  cancel_cache_seconds: 600
   min_price: 0.05
   max_price: 0.95
   # Only consider markets where min_incentive_size <= max_order_usdc
@@ -65,5 +71,7 @@ strategy:
   auto_level_depth: 3
   # 成交风险权重（0~1，越大越保守）
   fill_risk_weight: 0.5
+  # 允许偏离中点的最大比例（基点，1000=10%）
+  max_midpoint_deviation_bps: 1000
   min_incentive_size_key: min_incentive_size
   max_incentive_spread_key: max_incentive_spread
